@@ -160,8 +160,7 @@
     position:absolute;top:4px;left:7px;
   }
   .cell.start .cell-num{color:rgba(255,255,255,.85);}
-  .cell-emoji{font-size:20px; transition:opacity .25s ease;}
-  .cell-check{position:absolute;bottom:3px;right:5px;font-size:11px;}
+  .cell-emoji{font-size:28px; transition:opacity .25s ease;}
   .cell.current{border-color:var(--sunset-1); box-shadow:0 0 0 3px rgba(255,107,74,.18), 0 2px 8px -2px rgba(32,36,31,.08);}
   .cell.current .cell-emoji{opacity:.3;}
 
@@ -2054,15 +2053,12 @@ function renderCells(){
     div.style.left = xPct + '%';
     div.style.top = yPct + '%';
 
-    // 완료할 때마다(1회=1개 ~ 5회=5개) 이모티콘을 하나씩 더 보여준다. (START는 항상 1개)
-    const emojiCount = isStart ? 1 : Math.max(1, Math.min(level, MAX_LEVEL));
-    const emojiSize = emojiCount<=1 ? 20 : emojiCount===2 ? 16 : emojiCount===3 ? 13 : emojiCount===4 ? 11 : 9;
-    const emojiHtml = mission.emoji.repeat(emojiCount);
+    // 완료 여부는 칸 배경색(lvl1/2/3)으로만 표현하고, 이모지는 항상 하나만 칸에 꽉 차게 크게 보여준다.
+    const emojiHtml = mission.emoji;
     const numLabel = isStart ? '' : MISSION_NUMBER[i];
 
     div.innerHTML = `
-      <span class="cell-emoji" style="font-size:${emojiSize}px;">${emojiHtml}</span>
-      ${(!isStart && level >= 1) ? '<span class="cell-check">✅</span>' : ''}
+      <span class="cell-emoji">${emojiHtml}</span>
     `;
     div.addEventListener('click', ()=> openMission(i));
     layer.appendChild(div);
