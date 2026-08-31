@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>관리자 대시보드 | 마라닉프렌즈 9기</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import {
+    getFirestore, collection, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import {
+    getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+  // 배포용(production) Firebase 프로젝트 전용 — 이 관리자 페이지는 참가자용 index.html이랑
+  // 완전히 별도 파일이라, 참가자 화면 어디에도 이 페이지로 가는 링크를 안 걸어둔다.
+  const firebaseConfig = {
+    apiKey: "AIzaSyBZMwqFNDxb7fieAayTkN8c0a_QH-j9UTE",
+    authDomain: "maranicfriedns9.firebaseapp.com",
+    projectId: "maranicfriedns9",
+    storageBucket: "maranicfriedns9.firebasestorage.app",
+    messagingSenderId: "185528321888",
+    appId: "1:185528321888:web:ecce47f88bba3166e44005"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const db = getFirestore(fbApp);
+  const auth = getAuth(fbApp);
+  window.__fb = { db, collection, getDocs, auth, onAuthStateChanged, signInWithEmailAndPassword, signOut };
+  window.__fbReady = true;
+</script>
+<style>
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background:#FBFAF7; color:#20241F; margin:0; padding:24px 16px 60px;
+  }
+  .wrap{ max-width:960px; margin:0 auto; }
+  .card{ background:#fff; border:1px solid #E7E4DA; border-radius:16px; padding:24px; }
+  input{
+    width:100%; box-sizing:border-box; padding:12px 14px; border-radius:10px;
+    border:1.5px solid #E7E4DA; font-size:14px; margin-bottom:12px; background:#F3F1EA;
+  }
+  button{
+    background:linear-gradient(135deg,#FF6B4A,#FF3E7F); color:#fff; border:none;
+    padding:12px 20px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;
+  }
+  button:disabled{ opacity:.5; cursor:not-allowed; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; margin-top:16px; }
+  th, td{ text-align:left; padding:10px 12px; border-bottom:1px solid #E7E4DA; }
+  th{ cursor:pointer; user-select:none; color:#767C72; font-weight:700; white-space:nowrap; }
+  th:hover{ color:#FF6B4A; }
+  tr:hover td{ background:#F3F1EA; }
+  .err{ color:#e0483e; font-size:13px; margin-top:8px; }
+  .muted{ color:#767C72; font-size:12px; }
+  .pill{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+  .pill.s3{ background:#FDF3E1; color:#F5A623; }
+  .pill.s4{ background:#E7EEFD; color:#2F6FED; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 style="font-size:20px; font-weight:800; margin-bottom:4px;">🔐 관리자 대시보드</h1>
+  <p class="muted" style="margin-bottom:20px;">마라닉프렌즈 9기 · 참가자 미션 완료 현황 (배포용 전용)</p>
+
+  <div id="login-card" class="card" style="max-width:360px;">
+    <p style="font-weight:700; margin-bottom:14px;">관리자 로그인</p>
+    <input id="email-input" type="email" placeholder="이메일">
+    <input id="pw-input" type="password" placeholder="비밀번호">
+    <button id="login-btn">로그인</button>
+    <p id="login-err" class="err" style="display:none;"></p>
+  </div>
+
+  <div id="dashboard-card" class="card" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <p class="muted" id="summary-text">불러오는 중...</p>
+      <button id="logout-btn" style="background:#F3F1EA; color:#767C72; font-weight:600;">로그아웃</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="participants-table">
+        <thead>
+          <tr>
+            <th data-key="nickname">닉네임</th>
+            <th data-key="email">이메일</th>
+            <th data-key="s3">세션3 완료 <span class="pill s3">S3</span></th>
+            <th data-key="s4">세션4 완료 <span class="pill s4">S4</span></th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  let participantsData = [];
+  let sortKey = 'nickname';
+  let sortAsc = true;
+
+  function sumLevels(levels){
+    if(!levels || typeof levels !== 'object') return 0;
+    return Object.values(levels).reduce((sum, v)=> sum + (typeof v === 'number' ? v : 0), 0);
+  }
+
+  function renderTable(){
+    const sorted = [...participantsData].sort((a, b)=>{
+      const av = a[sortKey], bv = b[sortKey];
+      let cmp;
+      if(typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+      else cmp = String(av || '').localeCompare(String(bv || ''), 'ko');
+      return sortAsc ? cmp : -cmp;
+    });
+    const tbody = document.getElementById('table-body');
+    tbody.innerHTML = sorted.map(p => `
+      <tr>
+        <td>${escapeHtml(p.nickname || '(닉네임 없음)')}</td>
+        <td class="muted">${escapeHtml(p.email || '-')}</td>
+        <td><b>${p.s3}</b>회</td>
+        <td><b>${p.s4}</b>회</td>
+      </tr>
+    `).join('');
+    document.getElementById('summary-text').textContent = `총 참가자 ${participantsData.length}명`;
+  }
+
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  document.querySelectorAll('#participants-table th[data-key]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.dataset.key;
+      if(sortKey === key) sortAsc = !sortAsc;
+      else { sortKey = key; sortAsc = true; }
+      renderTable();
+    });
+  });
+
+  async function loadParticipants(){
+    document.getElementById('summary-text').textContent = '불러오는 중...';
+    try{
+      const snap = await window.__fb.getDocs(window.__fb.collection(window.__fb.db, 'participants'));
+      participantsData = [];
+      snap.forEach(docSnap=>{
+        const data = docSnap.data();
+        participantsData.push({
+          nickname: data.nickname || '',
+          email: data.email || '',
+          s3: sumLevels(data.session3 && data.session3.levels),
+          s4: sumLevels(data.session4 && data.session4.levels),
+        });
+      });
+      renderTable();
+    }catch(e){
+      document.getElementById('summary-text').textContent = '';
+      document.getElementById('table-body').innerHTML = '';
+      alert('참가자 목록을 불러오지 못했어요. 이 계정에 관리자 권한이 없을 수 있어요.\n(' + e.message + ')');
+    }
+  }
+
+  function waitForFirebase(){
+    return new Promise(resolve=>{
+      const check = ()=>{ if(window.__fbReady) resolve(); else setTimeout(check, 50); };
+      check();
+    });
+  }
+
+  (async function boot(){
+    await waitForFirebase();
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const emailInput = document.getElementById('email-input');
+    const pwInput = document.getElementById('pw-input');
+    const loginErr = document.getElementById('login-err');
+
+    loginBtn.addEventListener('click', async ()=>{
+      loginErr.style.display = 'none';
+      loginBtn.disabled = true;
+      loginBtn.textContent = '로그인 중...';
+      try{
+        await window.__fb.signInWithEmailAndPassword(window.__fb.auth, emailInput.value.trim(), pwInput.value);
+      }catch(e){
+        loginErr.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인해주세요.';
+        loginErr.style.display = 'block';
+      }
+      loginBtn.disabled = false;
+      loginBtn.textContent = '로그인';
+    });
+    pwInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') loginBtn.click(); });
+
+    logoutBtn.addEventListener('click', ()=> window.__fb.signOut(window.__fb.auth));
+
+    window.__fb.onAuthStateChanged(window.__fb.auth, (user)=>{
+      if(user){
+        document.getElementById('login-card').style.display = 'none';
+        document.getElementById('dashboard-card').style.display = 'block';
+        loadParticipants();
+      } else {
+        document.getElementById('login-card').style.display = 'block';
+        document.getElementById('dashboard-card').style.display = 'none';
+      }
+    });
+  })();
+</script>
+</body>
+</html>
